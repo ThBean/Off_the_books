@@ -5,6 +5,22 @@ from TextHandler import *
 from UserHandler import *
 
 #todo encrypt login and signup
+CHUNKSIZE = 1_000_000
+def Send(cs,data,PubKey):
+    encryptText(PubKey, data)
+
+    filename = "Message"
+    with cs, open(filename, 'rb') as f:
+        cs.sendall(filename.encode() + b'\n')
+        cs.sendall(f'{os.path.getsize(filename)}'.encode() + b'\n')
+
+        # Send the file in chunks so large files can be handled.
+        while True:
+            data = f.read(CHUNKSIZE)
+            if not data: break
+            cs.sendall(data)
+    os.remove("Message")
+
 
 # server's IP address
 SERVER_HOST = ""#Using local
@@ -40,9 +56,32 @@ def listen_for_client(cs):#todo make it assign a thread while executing
     Whenever a message is received, broadcast it to the other client
     """
     while True:
+        msg = ""
         try:
             # keep listening for a message from `cs` socket
-            msg = cs.recv(1024).decode()
+            with cs, cs.makefile('rb') as clientfile:
+                filename = clientfile.readline().strip().decode()
+                length = int(clientfile.readline())
+                print(f'Downloading {filename}:{length}...')
+                path = os.path.join(filename)
+
+                # Read the data in chunks so it can handle large files.
+                f = open("fileIn","wb")
+                while length:
+                        chunk = min(length, CHUNKSIZE)
+                        data = clientfile.read(chunk)
+                        if not data: break  # socket closed
+                        f.write(data)
+                        length -= len(data)
+                f.close()
+
+                if length != 0:
+                    print('Invalid download.')
+                else:
+                    print('Done.')
+
+                msg = decryptText("fileIn")
+
         except Exception as e:
             # client no longer connected
             # remove it from the set
@@ -57,7 +96,9 @@ def listen_for_client(cs):#todo make it assign a thread while executing
                         f=open("Users","r")
                         fr=ast.literal_eval(f.read())
                         f.close()
-                        cs.send(encryptText(Users[msg[2]],LoggingClients[msg[2]]))#send them a encrypted version of the numbers
+
+                        Send(cs,LoggingClients[msg[2]],Users[msg[2]])#send random numbers
+
                     else:
                         cs.send("WRONG".encode())#todo only allow 5 tries before blacklist
 

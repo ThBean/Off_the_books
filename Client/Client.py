@@ -1,3 +1,4 @@
+import os
 import socket
 import random
 from threading import Thread
@@ -8,6 +9,8 @@ from TextHandler import *
 
 # init colors
 init()
+
+CHUNKSIZE = 1_000_000
 
 # set the available colors
 colors = [Fore.BLUE, Fore.CYAN, Fore.GREEN, Fore.LIGHTBLACK_EX, 
@@ -33,16 +36,73 @@ print(f"[*] Connecting to {SERVER_HOST}:{SERVER_PORT}...")
 s.connect((SERVER_HOST, SERVER_PORT))
 print("[+] Connected.")
 # prompt the client for a name
+password=""
+
+def Send(cs,data,PubKey):
+    encryptText(PubKey, data)
+
+    filename = "Message"
+    with cs, open(filename, 'rb') as f:
+        cs.sendall(filename.encode() + b'\n')
+        cs.sendall(f'{os.path.getsize(filename)}'.encode() + b'\n')
+
+        # Send the file in chunks so large files can be handled.
+        while True:
+            data = f.read(CHUNKSIZE)
+            if not data: break
+            cs.sendall(data)
+    os.remove("Message")
+
 
 def listen_for_messages():#Used to assign a thread
     while True:
-        message = s.recv(1024).decode()
-        print("\n"+message)
+        with s, s.makefile('rb') as clientfile:
+            filename = clientfile.readline().strip().decode()
+            length = int(clientfile.readline())
+            print(f'Downloading {filename}:{length}...')
+            path = os.path.join(filename)
+
+            # Read the data in chunks so it can handle large files.
+            f = open("fileIn", "wb")
+            while length:
+                chunk = min(length, CHUNKSIZE)
+                data = clientfile.read(chunk)
+                if not data: break  # socket closed
+                f.write(data)
+                length -= len(data)
+            f.close()
+
+            if length != 0:
+                print('Invalid download.')
+            else:
+                print('Done.')
+
+            return PasswordDecrypt("fileIn",password)
 
 def listen_for_message():#Used to get only one message
     while True:
-        message = s.recv(1024)
-        return message
+        with s, s.makefile('rb') as clientfile:
+            filename = clientfile.readline().strip().decode()
+            length = 1
+            print(f'Downloading {filename}:{length}...')
+            path = os.path.join(filename)
+
+            # Read the data in chunks so it can handle large files.
+            f = open("fileIn", "wb")
+            while length:
+                chunk = min(length, CHUNKSIZE)
+                data = clientfile.read(chunk)
+                if not data: break  # socket closed
+                f.write(data)
+                length -= len(data)
+            f.close()
+
+            if length != 0:
+                print('Invalid download.')
+            else:
+                print('Done.')
+
+            return PasswordDecrypt("fileIn",password)
 
 def SignUp():
     Name = input("Enter what you want to be called by: ")
