@@ -27,7 +27,7 @@ SERVER_HOST = ""
 SERVER_PORT = 5002 # server's port
 separator_token = "<SEP>" # we will use this to separate the client name & message
 PubKey = ""
-signiture = "MySignature"
+ServerPub = ""
 
 # initialize TCP socket
 s = socket.socket()
@@ -35,11 +35,10 @@ print(f"[*] Connecting to {SERVER_HOST}:{SERVER_PORT}...")
 # connect to the server
 s.connect((SERVER_HOST, SERVER_PORT))
 print("[+] Connected.")
-# prompt the client for a name
 password=""
 
-def Send(cs,data,PubKey):
-    encryptText(PubKey, data)
+def Send(cs,data,ServerPubKey):
+    encryptText(ServerPubKey, data)
 
     filename = "Message"
     with cs, open(filename, 'rb') as f:
@@ -79,30 +78,34 @@ def listen_for_messages():#Used to assign a thread
 
             return PasswordDecrypt("fileIn",password)
 
-def listen_for_message():#Used to get only one message
-    while True:
-        with s, s.makefile('rb') as clientfile:
-            filename = clientfile.readline().strip().decode()
-            length = 1
-            print(f'Downloading {filename}:{length}...')
-            path = os.path.join(filename)
+def listen_for_message(enc):#Used to get only one message
+    if enc:
+        while True:
+            with s, s.makefile('rb') as clientfile:
+                filename = clientfile.readline().strip().decode()
+                length = 1
+                print(f'Downloading {filename}:{length}...')
+                path = os.path.join(filename)
 
-            # Read the data in chunks so it can handle large files.
-            f = open("fileIn", "wb")
-            while length:
-                chunk = min(length, CHUNKSIZE)
-                data = clientfile.read(chunk)
-                if not data: break  # socket closed
-                f.write(data)
-                length -= len(data)
-            f.close()
+                # Read the data in chunks so it can handle large files.
+                f = open("fileIn", "wb")
+                while length:
+                    chunk = min(length, CHUNKSIZE)
+                    data = clientfile.read(chunk)
+                    if not data: break  # socket closed
+                    f.write(data)
+                    length -= len(data)
+                f.close()
 
-            if length != 0:
-                print('Invalid download.')
-            else:
-                print('Done.')
+                if length != 0:
+                    print('Invalid download.')
+                else:
+                    print('Done.')
 
-            return PasswordDecrypt("fileIn",password)
+                return PasswordDecrypt("fileIn",password)
+    else:
+            while True:
+                return s.recv(1024).decode()
 
 def SignUp():
     Name = input("Enter what you want to be called by: ")
@@ -136,6 +139,11 @@ def SignUp():
 Attempt = True
 tries = 0
 
+print("GETTING SERVER KEY...")
+to_send = "`/get"
+s.send(to_send.encode())  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
+ServerPub = listen_for_message(False)
+
 while Attempt:#Start login attempts for 5 tries
     print("enter 'sign up' to create account")
     name = input("Enter your name: ")#Ask for info
@@ -144,18 +152,20 @@ while Attempt:#Start login attempts for 5 tries
         Attempt = False
     else:
         password = input("Enter your password: ")
+        PubKey = GetPubKey(password)
 
+        print("GETTING SESSION ID...")
         to_send = "`/#login#"+name
-        s.send(to_send.encode())#send info with a `/ to tell the machine its a command
-
-        response = listen_for_message()
+        Send(s,to_send,ServerPub)  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
+        response = listen_for_message(True)
         print(response)
-        response = PasswordDecrypt(response,password)
 
-        to_send = "`/#login2#"+name+"#"+response
+        response = PasswordDecrypt(response,password)#decrypt with our key
+
+        to_send = "`/#login2#"+name+"#"+response#send back session id to prove who we be
         s.send(to_send.encode())
 
-        response = listen_for_message().decode()
+        response = listen_for_message(True).decode()
         if response == "WRONG":
             print("Incorrect Information! Have you made a account")
             tries += 1

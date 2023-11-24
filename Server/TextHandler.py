@@ -3,8 +3,8 @@ from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
 
 
-def GetPubKey(Password):
-    return RSA.import_key(open("key","rb").read(), passphrase=Password).public_key().export_key("PEM").decode()
+def GetPubKey():
+    return RSA.import_key(open("pubKey","rb").read()).export_key("PEM").decode()
 
 def make_Key():
     key = RSA.generate(4096)
@@ -31,18 +31,16 @@ def encryptText(Key,data):#Key is a byte map btw
 
 def decryptText(file):#Ensure key is in bytes
     f = open(file,"rb")
-    data = f.read()
-    f.close()
 
-    f = open("key", "rb")
-    Key = f.read()
-    f.close()
+    fk = open("key", "rb")
+    Key = fk.read()
+    fk.close()
 
     private_key = RSA.import_key(Key)
 
     enc_session_key, nonce, tag, ciphertext = \
-        [ data for x in (private_key.size_in_bytes(), 16, 16, -1) ]
-
+        [ f.read(x) for x in (private_key.size_in_bytes(), 16, 16, -1) ]
+    f.close()
     # Decrypt the session key with the private RSA key
     cipher_rsa = PKCS1_OAEP.new(private_key)
     session_key = cipher_rsa.decrypt(enc_session_key)

@@ -6,6 +6,8 @@ from UserHandler import *
 
 #todo encrypt login and signup
 CHUNKSIZE = 1_000_000
+PubKey = GetPubKey()
+
 def Send(cs,data,PubKey):
     encryptText(PubKey, data)
 
@@ -56,7 +58,9 @@ def listen_for_client(cs):#todo make it assign a thread while executing
     Whenever a message is received, broadcast it to the other client
     """
     while True:
-        msg = ""
+        if cs.recv(1024).decode()=="`/get":
+            cs.send(PubKey.encode())
+            continue
         try:
             # keep listening for a message from `cs` socket
             with cs, cs.makefile('rb') as clientfile:
