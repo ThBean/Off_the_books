@@ -5,3 +5,4 @@ A open source Secure messaging system
 3. A user can authenticate without exchaning a password
 
 <img src="https://github.com/ThBean/Off_the_books/blob/master/WinterStreet.gif" width="600" height="200" />
+Yes i know the keys are in plain text
