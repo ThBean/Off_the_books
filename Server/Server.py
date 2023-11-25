@@ -1,13 +1,15 @@
+import os
+import ast
 import random
 import socket
 from threading import Thread
-from TextHandler import *
-from UserHandler import *
+import Modules.TextHandler as text_handler
+import Modules.UserHandler as user_handler
 
 #todo encrypt login and signup
 CHUNKSIZE = 1_000_000
-def Send(cs,data,PubKey):
-    encryptText(PubKey, data)
+def send(cs, data, pub_key):
+    text_handler.encrypt_text(pub_key, data)
 
     filename = "Message"
     with cs, open(filename, 'rb') as f:
@@ -17,7 +19,8 @@ def Send(cs,data,PubKey):
         # Send the file in chunks so large files can be handled.
         while True:
             data = f.read(CHUNKSIZE)
-            if not data: break
+            if not data:
+                break
             cs.sendall(data)
     os.remove("Message")
 
@@ -25,7 +28,7 @@ def Send(cs,data,PubKey):
 # server's IP address
 SERVER_HOST = ""#Using local
 SERVER_PORT = 5002 # port we want to use
-separator_token = "<SEP>" # we will use this to separate the client name & message
+SEPARATOR_TOKEN = "<SEP>" # we will use this to separate the client name & message
 DIR = os.path.dirname(os.path.realpath(__file__))
 
 # initialize list/set of all connected client's sockets
@@ -43,9 +46,9 @@ s.listen(5)
 OnlineClients = []#[["username","IP"]]
 LoggingClients = {}
 
-f = open(DIR+"/Users","r")#open the file
-Users = ast.literal_eval(f.read())# FORMAT IS Users = [Username]
-f.close()
+with open(f"{DIR}/Users","r") as f:   #open the file
+    Users = ast.literal_eval(f.read())  # FORMAT IS Users = [Username]
+    f.close()
 
 
 print(f"[*] Listening as {SERVER_HOST}:{SERVER_PORT}")
@@ -66,21 +69,22 @@ def listen_for_client(cs):#todo make it assign a thread while executing
                 path = os.path.join(filename)
 
                 # Read the data in chunks so it can handle large files.
-                f = open("fileIn","wb")
-                while length:
-                        chunk = min(length, CHUNKSIZE)
-                        data = clientfile.read(chunk)
-                        if not data: break  # socket closed
-                        f.write(data)
-                        length -= len(data)
-                f.close()
+                with open("fileIn","wb") as f:
+                    while length:
+                            chunk = min(length, CHUNKSIZE)
+                            data = clientfile.read(chunk)
+                            if not data:
+                                break  # socket closed
+                            f.write(data)
+                            length -= len(data)
+                    f.close()
 
                 if length != 0:
                     print('Invalid download.')
                 else:
                     print('Done.')
 
-                msg = decryptText("fileIn")
+                msg = text_handler.decrypt_text("fileIn")
 
         except Exception as e:
             # client no longer connected
@@ -93,11 +97,11 @@ def listen_for_client(cs):#todo make it assign a thread while executing
                 if msg[1] == "login":#if command is login
                     if msg[2] in Users.keys():
                         LoggingClients[msg[2]]=str(random.randint(0,999999))
-                        f=open("Users","r")
-                        fr=ast.literal_eval(f.read())
-                        f.close()
+                        with open("Users","r") as f:
+                            fr=ast.literal_eval(f.read())
+                            f.close()
 
-                        Send(cs,LoggingClients[msg[2]],Users[msg[2]])#send random numbers
+                        send(cs,LoggingClients[msg[2]],Users[msg[2]])#send random numbers
 
                     else:
                         cs.send("WRONG".encode())#todo only allow 5 tries before blacklist
@@ -110,14 +114,14 @@ def listen_for_client(cs):#todo make it assign a thread while executing
                             cs.send(b'Nice try glowie')
 
                 elif msg[1] == "signup":#if command is addUser
-                    if AddUser(msg[2],msg[3]):#name pubkey
+                    if user_handler.add_user(msg[2],msg[3]):#name pub_key
                         cs.send(b'SIGNED UP')
                     else:
                         cs.send(b'USERNAME IN USE')
         else:
                 # if we received a message, replace the <SEP>
                 # token with ": " for nice printing
-                msg = msg.replace(separator_token, ": ")
+                msg = msg.replace(SEPARATOR_TOKEN, ": ")
                 # iterate over all connected sockets
                 print(msg)
                 for client_socket in client_sockets:
@@ -137,6 +141,8 @@ while True:
     t.daemon = True
     # start the thread
     t.start()
+
+# Code unreachable!!!!
 
 # close client sockets
 for cs in client_sockets:

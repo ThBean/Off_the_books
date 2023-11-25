@@ -3,9 +3,9 @@ import socket
 import random
 from threading import Thread
 from datetime import datetime
-from colorama import Fore, init
 from time import sleep
-from TextHandler import *
+from colorama import Fore, init
+import Modules.TextHandler as text_handler
 
 # init colors
 init()
@@ -13,9 +13,9 @@ init()
 CHUNKSIZE = 1_000_000
 
 # set the available colors
-colors = [Fore.BLUE, Fore.CYAN, Fore.GREEN, Fore.LIGHTBLACK_EX, 
-    Fore.LIGHTBLUE_EX, Fore.LIGHTCYAN_EX, Fore.LIGHTGREEN_EX, 
-    Fore.LIGHTMAGENTA_EX, Fore.LIGHTRED_EX, Fore.LIGHTWHITE_EX, 
+colors = [Fore.BLUE, Fore.CYAN, Fore.GREEN, Fore.LIGHTBLACK_EX,
+    Fore.LIGHTBLUE_EX, Fore.LIGHTCYAN_EX, Fore.LIGHTGREEN_EX,
+    Fore.LIGHTMAGENTA_EX, Fore.LIGHTRED_EX, Fore.LIGHTWHITE_EX,
     Fore.LIGHTYELLOW_EX, Fore.MAGENTA, Fore.RED, Fore.WHITE, Fore.YELLOW
 ]
 
@@ -25,9 +25,9 @@ client_color = random.choice(colors)
 # server's IP address
 SERVER_HOST = ""
 SERVER_PORT = 5002 # server's port
-separator_token = "<SEP>" # we will use this to separate the client name & message
-PubKey = ""
-signiture = "MySignature"
+SEPARATOR_TOKEN = "<SEP>" # we will use this to separate the client name & message
+PUBKEY = ""
+SIGNATURE = "MySignature"
 
 # initialize TCP socket
 s = socket.socket()
@@ -35,11 +35,10 @@ print(f"[*] Connecting to {SERVER_HOST}:{SERVER_PORT}...")
 # connect to the server
 s.connect((SERVER_HOST, SERVER_PORT))
 print("[+] Connected.")
-# prompt the client for a name
-password=""
 
-def Send(cs,data,PubKey):
-    encryptText(PubKey, data)
+# functions:
+def send(cs, data, pubkey):
+    text_handler.encrypt_text(pubkey, data)
 
     filename = "Message"
     with cs, open(filename, 'rb') as f:
@@ -49,7 +48,8 @@ def Send(cs,data,PubKey):
         # Send the file in chunks so large files can be handled.
         while True:
             data = f.read(CHUNKSIZE)
-            if not data: break
+            if not data:
+                break
             cs.sendall(data)
     os.remove("Message")
 
@@ -67,7 +67,8 @@ def listen_for_messages():#Used to assign a thread
             while length:
                 chunk = min(length, CHUNKSIZE)
                 data = clientfile.read(chunk)
-                if not data: break  # socket closed
+                if not data:
+                    break  # socket closed
                 f.write(data)
                 length -= len(data)
             f.close()
@@ -77,7 +78,7 @@ def listen_for_messages():#Used to assign a thread
             else:
                 print('Done.')
 
-            return PasswordDecrypt("fileIn",password)
+            return text_handler.password_decrypt("fileIn",password)
 
 def listen_for_message():#Used to get only one message
     while True:
@@ -88,60 +89,63 @@ def listen_for_message():#Used to get only one message
             path = os.path.join(filename)
 
             # Read the data in chunks so it can handle large files.
-            f = open("fileIn", "wb")
-            while length:
-                chunk = min(length, CHUNKSIZE)
-                data = clientfile.read(chunk)
-                if not data: break  # socket closed
-                f.write(data)
-                length -= len(data)
-            f.close()
+            with open("fileIn", "wb") as f:
+                while length:
+                    chunk = min(length, CHUNKSIZE)
+                    data = clientfile.read(chunk)
+                    if not data:
+                        break  # socket closed
+                    f.write(data)
+                    length -= len(data)
+                f.close()
 
             if length != 0:
                 print('Invalid download.')
             else:
                 print('Done.')
 
-            return PasswordDecrypt("fileIn",password)
+            return text_handler.password_decrypt("fileIn",password)
 
-def SignUp():
-    Name = input("Enter what you want to be called by: ")
-    if Name.isalpha():
-        Password = input("enter your password (the Longer the better;) : ")
-        RePassword = input("renter your password: ")
-        if Password == RePassword:
+def sign_up():
+    user_name = input("Enter what you want to be called by: ")
+    if user_name.isalpha():
+        user_password = input("enter your password (the Longer the better;) : ")
+        user_re_password = input("renter your password: ")
+        if user_password == user_re_password:
             print("Signing Up!")
 
-            PasswordMakeKey(Password)
-            PubKey = GetPubKey(Password)
+            text_handler.password_make_key(user_password)
+            pub_key = text_handler.get_pub_key(user_password)
 
-            to_send = "`/#signup#" + Name + "#" + PubKey
-            print(PubKey)
+            to_send = "`/#signup#" + user_name + "#" + pub_key
+            print(pub_key)
             s.send(to_send.encode())  #send request
-            response = listen_for_message().decode()
-            if response == "USERNAME IN USE":
+            message_response = listen_for_message()
+            if message_response == "USERNAME IN USE":
                 print("Username already being used")
-                SignUp()
-            to_send = "`/#login " + "#" + Name + "#" + Sign(signiture,Password)
+                sign_up()
+            to_send = "`/#login " + "#" + user_name + "#" + sign(SIGNATURE,user_password)
             print("Logging In!")
             s.send(to_send.encode())
-            return listen_for_message().decode().split(" ")
-        else:
-            print("Passwords dont match!")
-            SignUp()
+            return listen_for_message().split(" ")
+        
+        print("Passwords don't match!")
+        sign_up()
     else:
-        print("you can only have letters! try again.")
-        SignUp()
+        print("You can only have letters! try again.")
+        sign_up()
 
-Attempt = True
+
+# prompt the client for a name
+attempt = True
 tries = 0
 
-while Attempt:#Start login attempts for 5 tries
+while attempt:#Start login attempts for 5 tries
     print("enter 'sign up' to create account")
     name = input("Enter your name: ")#Ask for info
     if name.lower() == "sign up":
-        keys = SignUp()
-        Attempt = False
+        keys = sign_up()
+        attempt = False
     else:
         password = input("Enter your password: ")
 
@@ -150,20 +154,20 @@ while Attempt:#Start login attempts for 5 tries
 
         response = listen_for_message()
         print(response)
-        response = PasswordDecrypt(response,password)
+        response = text_handler.password_decrypt(response,password)
 
         to_send = "`/#login2#"+name+"#"+response
         s.send(to_send.encode())
 
-        response = listen_for_message().decode()
+        response = listen_for_message()
         if response == "WRONG":
             print("Incorrect Information! Have you made a account")
             tries += 1
-            if Attempt == 5:
+            if attempt == 5:
                 print("TIMEOUT")
                 exit()
         elif response == "SUCCESS":
-            Attempt = False
+            attempt = False
             print(response)
 
 
@@ -177,17 +181,17 @@ t.start()
 while True:
     sleep(1)
     # input message we want to send to the server
-    to_send =  input("Message: ")
+    to_send = input("Message: ")
     # a way to exit the program
     if to_send.lower() == 'x':
         break
     # add the datetime, name & the color of the sender
-    date_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S') 
+    date_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     to_send = f"{client_color} {to_send}{Fore.RESET}"
     #Encrypt the message
-    to_send = encryptText(PubKey,to_send)
+    encrypted_message = text_handler.encrypt_text(PubKey, to_send)
     # finally, send the message
-    s.send(to_send.encode())
+    s.send(encrypted_message.encode())
 
 # close the socket
 s.close()
