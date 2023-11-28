@@ -50,40 +50,16 @@ def Send(cs,data,ServerPubKey):
             data = f.read(CHUNKSIZE)
             if not data: break
             cs.sendall(data)
+            print(data)
     os.remove("Message")
 
 
 def listen_for_messages():#Used to assign a thread
     while True:
-        with s, s.makefile('rb') as clientfile:
-            filename = clientfile.readline().strip().decode()
-            length = int(clientfile.readline())
-            print(f'Downloading {filename}:{length}...')
-            path = os.path.join(filename)
-
-            # Read the data in chunks so it can handle large files.
-            f = open("fileIn", "wb")
-            while length:
-                chunk = min(length, CHUNKSIZE)
-                data = clientfile.read(chunk)
-                if not data: break  # socket closed
-                f.write(data)
-                length -= len(data)
-            f.close()
-
-            if length != 0:
-                print('Invalid download.')
-            else:
-                print('Done.')
-
-            return PasswordDecrypt("fileIn",password)
-
-def listen_for_message(enc):#Used to get only one message
-    if enc:
-        while True:
+        try:
             with s, s.makefile('rb') as clientfile:
-                filename = clientfile.readline().strip().decode()
-                length = 1
+                filename = clientfile.readline().strip()
+                length = int(clientfile.readline())
                 print(f'Downloading {filename}:{length}...')
                 path = os.path.join(filename)
 
@@ -103,6 +79,37 @@ def listen_for_message(enc):#Used to get only one message
                     print('Done.')
 
                 return PasswordDecrypt("fileIn",password)
+        except OSError as e:
+            pass
+
+def listen_for_message(enc):#Used to get only one message
+    if enc:
+        while True:
+            try:
+                with s, s.makefile('rb') as clientfile:
+                    filename = clientfile.readline().strip()
+                    length = 1
+                    print(f'Downloading {filename}:{length}...')
+                    path = os.path.join(filename)
+
+                    # Read the data in chunks so it can handle large files.
+                    f = open("fileIn", "wb")
+                    while length:
+                        chunk = min(length, CHUNKSIZE)
+                        data = clientfile.read(chunk)
+                        if not data: break  # socket closed
+                        f.write(data)
+                        length -= len(data)
+                    f.close()
+
+                    if length != 0:
+                        print('Invalid download.')
+                    else:
+                        print('Done.')
+
+                    return PasswordDecrypt("fileIn",password)
+            except OSError:
+                print("not valid file")
     else:
             while True:
                 return s.recv(1024).decode()
@@ -143,6 +150,7 @@ print("GETTING SERVER KEY...")
 to_send = "`/get"
 s.send(to_send.encode())  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
 ServerPub = listen_for_message(False)
+print(ServerPub)
 
 while Attempt:#Start login attempts for 5 tries
     print("enter 'sign up' to create account")
