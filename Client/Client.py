@@ -83,36 +83,33 @@ def listen_for_messages():#Used to assign a thread
             pass
 
 def listen_for_message(enc):#Used to get only one message
-    if enc:
-        while True:
-            try:
-                with s, s.makefile('rb') as clientfile:
-                    filename = clientfile.readline().strip()
-                    length = 1
-                    print(f'Downloading {filename}:{length}...')
-                    path = os.path.join(filename)
+    while True:
+        try:
+            with s, s.makefile('rb') as clientfile:
+                filename = clientfile.readline().strip()
+                path = os.path.join(filename)
 
-                    # Read the data in chunks so it can handle large files.
-                    f = open("fileIn", "wb")
-                    while length:
-                        chunk = min(length, CHUNKSIZE)
-                        data = clientfile.read(chunk)
-                        if not data: break  # socket closed
-                        f.write(data)
-                        length -= len(data)
+                # Read the data in chunks so it can handle large files.
+                f = open("fileIn", "wb")
+                data = clientfile.read(CHUNKSIZE)
+                if not data: break  # socket closed
+                f.write(data)
+                f.close()
+
+                print('Done.')
+
+                if enc:
+                    out = PasswordDecrypt('fileIn',password)
+                else:
+                    f = open('fileIn', "r")
+                    out = f.read()
                     f.close()
+                    os.remove('fileIn')
 
-                    if length != 0:
-                        print('Invalid download.')
-                    else:
-                        print('Done.')
+                return out
 
-                    return PasswordDecrypt("fileIn",password)
-            except OSError:
-                print("not valid file")
-    else:
-            while True:
-                return s.recv(1024).decode()
+        except OSError:
+            print("not valid file")
 
 def SignUp():
     Name = input("Enter what you want to be called by: ")
@@ -128,14 +125,11 @@ def SignUp():
             to_send = "`/#signup#" + Name + "#" + PubKey
             print(PubKey)
             s.send(to_send.encode())  #send request
-            response = listen_for_message().decode()
+            response = listen_for_message(False).decode()
             if response == "USERNAME IN USE":
                 print("Username already being used")
                 SignUp()
-            to_send = "`/#login " + "#" + Name + "#" + Sign(signiture,Password)
-            print("Logging In!")
-            s.send(to_send.encode())
-            return listen_for_message().decode().split(" ")
+
         else:
             print("Passwords dont match!")
             SignUp()
@@ -149,7 +143,7 @@ tries = 0
 print("GETTING SERVER KEY...")
 to_send = "`/get"
 s.send(to_send.encode())  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
-ServerPub = listen_for_message(False)
+ServerPub = s.recv(1024)
 print(ServerPub)
 
 while Attempt:#Start login attempts for 5 tries
@@ -158,31 +152,32 @@ while Attempt:#Start login attempts for 5 tries
     if name.lower() == "sign up":
         keys = SignUp()
         Attempt = False
-    else:
-        password = input("Enter your password: ")
-        PubKey = GetPubKey(password)
 
-        print("GETTING SESSION ID...")
-        to_send = "`/#login#"+name
-        Send(s,to_send,ServerPub)  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
-        response = listen_for_message(True)
+    password = input("Enter your password: ")
+    PubKey = GetPubKey(password)
+
+    print("GETTING SESSION ID...")
+    to_send = "`/#login#"+name
+
+    Send(s,to_send,ServerPub)  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
+    response = listen_for_message(True)
+    print(response)
+
+    response = PasswordDecrypt(response,password)#decrypt with our key
+
+    to_send = "`/#login2#"+name+"#"+response#send back session id to prove who we be
+    s.send(to_send.encode())
+
+    response = listen_for_message(True).decode()
+    if response == "WRONG":
+        print("Incorrect Information! Have you made a account?")
+        tries += 1
+        if Attempt == 5:
+            print("TIMEOUT")
+            exit()
+    elif response == "SUCCESS":
+        Attempt = False
         print(response)
-
-        response = PasswordDecrypt(response,password)#decrypt with our key
-
-        to_send = "`/#login2#"+name+"#"+response#send back session id to prove who we be
-        s.send(to_send.encode())
-
-        response = listen_for_message(True).decode()
-        if response == "WRONG":
-            print("Incorrect Information! Have you made a account")
-            tries += 1
-            if Attempt == 5:
-                print("TIMEOUT")
-                exit()
-        elif response == "SUCCESS":
-            Attempt = False
-            print(response)
 
 
 # make a thread that listens for messages to this client & print them

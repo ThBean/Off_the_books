@@ -48,7 +48,7 @@ def decryptText(file):#Ensure key is in bytes
     # Decrypt the data with the AES session key
     cipher_aes = AES.new(session_key, AES.MODE_EAX, nonce)
     data = cipher_aes.decrypt_and_verify(ciphertext, tag)
-    return data.decode()
+    return data.decode('latin-1')
 
 
 def PasswordDecrypt(file,password):

@@ -8,20 +8,21 @@ from UserHandler import *
 CHUNKSIZE = 1_000_000
 PubKey = GetPubKey()
 
-def Send(cs,PubKey,data):
-    encryptText(PubKey, data)
+def Send(cs,data,PubKey=''):
+    if PubKey != '':#if its enrypted
+        encryptText(PubKey, data)
 
-    filename = "Message"
-    with cs, open(filename, 'rb') as f:
-        cs.sendall(filename.encode() + b'\n')
-        cs.sendall(f'{os.path.getsize(filename)}'.encode() + b'\n')
+        filename = "Message"
+        with cs, open(filename, 'rb') as f:
+            # Send the file in chunks so large files can be handled.
+            while True:
+                data = f.read(CHUNKSIZE)
+                if not data: break
+                cs.sendall(data)
+        os.remove("Message")
 
-        # Send the file in chunks so large files can be handled.
-        while True:
-            data = f.read(CHUNKSIZE)
-            if not data: break
-            cs.sendall(data)
-    os.remove("Message")
+    else:
+        cs.send(data.encode())
 
 
 # server's IP address
@@ -39,7 +40,7 @@ s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 # bind the socket to the address we specified
 s.bind((SERVER_HOST, SERVER_PORT))
 # listen for upcoming connections
-s.listen(5)#can only have 5 users at a time
+s.listen(4)#can only have 4 users at a time
 
 
 OnlineClients = []#[["username","IP"]]
@@ -60,77 +61,70 @@ def listen_for_client(cs):
     while True:
         msg=""
 
-        try:
-            if cs.recv(1024).decode()=="`/get":
-                Send(cs,PubKey,PubKey.encode())
-        except FileExistsError:
+        try:#check for file or not
+            msg = cs.recv(1024)
+            if msg.decode()=="`/get":
+                print("Sending Pubkey")
+                Send(cs,PubKey)
+        except UnicodeError:
             print("FILE INCOMING")
-            try:
+            try:#try block
                 # keep listening for a message from `cs` socket
                 with cs, cs.makefile('rb') as clientfile:
                     filename = clientfile.readline().strip()
-                    length = int(clientfile.readline())
-                    print(f'Downloading {filename}:{length}...')
+                    #length = int(clientfile.readline())
+                    print(f'Downloading {filename}...')
                     path = os.path.join(filename)
 
                     # Read the data in chunks so it can handle large files.
                     f = open("fileIn","wb")
-                    while length:
-                            chunk = min(length, CHUNKSIZE)
-                            data = clientfile.read(chunk)
-                            if not data: break  # socket closed
+                    while True:
+                            data = clientfile.read(CHUNKSIZE)
+                            print(data)
+                            if not data or data==b'': break  # socket closed
                             f.write(data)
-                            length -= len(data)
                     f.close()
 
-                    if length != 0:
-                        print('Invalid download.')
-                    else:
-                        print('Done.')
+                    print('Done.')
 
                     msg = decryptText("fileIn")
+                    print(msg)
+
+
+                if msg.split("#")[0] == "`/" and msg != "`/get":#if command word
+                        print("Command Detected")
+                        msg = msg.split("#")# msg = ["command","type", "Name"]
+                        if msg[1] == "login":#if command is login
+                            if msg[2] in Users.keys():
+                                LoggingClients[msg[2]]=str(random.randint(0,999999))
+                                f=open("Users","r")
+                                fr=ast.literal_eval(f.read())
+                                f.close()
+
+                                Send(cs,Users[msg[2]],LoggingClients[msg[2]])#send random numbers
+
+                            else:
+                                Send(cs,PubKey,"WRONG".encode())#todo only allow 5 tries before blacklist
+
+                        elif msg[1] == "login2":
+                            if msg[2] in LoggingClients.keys():
+                                if msg[3] == LoggingClients[msg[2]]:
+                                    Send(cs,b'SUCCESS',PubKey)
+                                else:
+                                    Send(cs,b'Nice try glowie',PubKey)
+
+                        elif msg[1] == "signup":#if command is addUser
+                            if AddUser(msg[2],msg[3]):#name pubkey
+                                Send(cs,b'SIGNED UP',PubKey)
+                            else:
+                                Send(cs,b'USERNAME IN USE',PubKey)
 
             except Exception as e:
                 # client no longer connected
                 # remove it from the set
                 print(f"[!] Error: {e}")
-                #client_sockets.remove(cs)
-            if msg.split("#")[0] == "`/":#if command word
-                    print("Command Detected")
-                    msg = msg.split("#")# msg = ["command","type", "Name"]
-                    if msg[1] == "login":#if command is login
-                        if msg[2] in Users.keys():
-                            LoggingClients[msg[2]]=str(random.randint(0,999999))
-                            f=open("Users","r")
-                            fr=ast.literal_eval(f.read())
-                            f.close()
-
-                            Send(cs,Users[msg[2]],LoggingClients[msg[2]])#send random numbers
-
-                        else:
-                            Send(cs,PubKey,"WRONG".encode())#todo only allow 5 tries before blacklist
-
-                    elif msg[1] == "login2":
-                        if msg[2] in LoggingClients.keys():
-                            if msg[3] == LoggingClients[msg[2]]:
-                                Send(cs,PubKey,b'SUCCESS')
-                            else:
-                                Send(cs,PubKey,b'Nice try glowie')
-
-                    elif msg[1] == "signup":#if command is addUser
-                        if AddUser(msg[2],msg[3]):#name pubkey
-                            Send(cs,PubKey,b'SIGNED UP')
-                        else:
-                            Send(cs,PubKey,b'USERNAME IN USE')
-            else:
-                    # if we received a message, replace the <SEP>
-                    # token with ": " for nice printing
-                    msg = msg.replace(separator_token, ": ")
-                    # iterate over all connected sockets
-                    print(msg)
-                    for client_socket in client_sockets:
-                        # and send the message
-                        client_socket.send(msg.encode())
+                if msg.strip() == '':
+                    client_sockets.remove(cs)
 
 
 while True:
