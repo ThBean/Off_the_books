@@ -1,4 +1,3 @@
-import random
 import socket
 from threading import Thread
 from TextHandler import *
@@ -12,16 +11,21 @@ def Send(cs,data,PubKey=''):
     if PubKey != '':#if its enrypted
         encryptText(PubKey, data)
 
-        filename = "Message"
-        with cs, open(filename, 'rb') as f:
-            # Send the file in chunks so large files can be handled.
-            while True:
-                data = f.read(CHUNKSIZE)
-                if not data: break
-                cs.sendall(data)
-        os.remove("Message")
+        f = open('Message', 'rb')
+        size = os.path.getsize('Message')
+        cs.send(str(size).encode())
+        print(size)
 
-    else:
+        recursions = size / CHUNKSIZE
+        if recursions < 1: recursions = 1
+
+        l = b''
+        for x in range(0, recursions):  # loop through the number of time to send the data
+            print('Sending...')
+            l = f.read(CHUNKSIZE)
+            print(l)
+            cs.send(l)
+    else:#RFI
         cs.send(data.encode())
 
 
@@ -42,6 +46,27 @@ s.bind((SERVER_HOST, SERVER_PORT))
 # listen for upcoming connections
 s.listen(4)#can only have 4 users at a time
 
+def receive_file(sck: socket.socket):
+
+    print("Receiving...")
+    l = sck.recv(1024).decode()
+    if l == '`/#get':
+            return l
+    else:
+        f = open('fileIn', 'wb')
+
+        recursions = int(l) / CHUNKSIZE
+        if recursions < 1: recursions = 1
+
+        for x in range(0,recursions):
+            print("Receiving...")
+            l = sck.recv(1024)
+            f.write(l)
+        f.close()
+        print("Done Receiving")
+        return decryptText('fileIn')
+
+
 
 OnlineClients = []#[["username","IP"]]
 LoggingClients = {}
@@ -59,49 +84,23 @@ def listen_for_client(cs):
     Whenever a message is received, broadcast it to the other client
     """
     while True:
-        msg=""
-
-        try:#check for file or not
-            msg = cs.recv(1024)
-            if msg.decode()=="`/get":
-                print("Sending Pubkey")
-                Send(cs,PubKey)
-        except UnicodeError:
-            print("FILE INCOMING")
+            msg=receive_file(cs)
             try:#try block
-                # keep listening for a message from `cs` socket
-                with cs, cs.makefile('rb') as clientfile:
-                    filename = clientfile.readline().strip()
-                    #length = int(clientfile.readline())
-                    print(f'Downloading {filename}...')
-                    path = os.path.join(filename)
+                print(msg)
 
-                    # Read the data in chunks so it can handle large files.
-                    f = open("fileIn","wb")
-                    while True:
-                            data = clientfile.read(CHUNKSIZE)
-                            print(data)
-                            if not data or data==b'': break  # socket closed
-                            f.write(data)
-                    f.close()
-
-                    print('Done.')
-
-                    msg = decryptText("fileIn")
-                    print(msg)
-
-
-                if msg.split("#")[0] == "`/" and msg != "`/get":#if command word
-                        print("Command Detected")
+                if msg.split("#")[0] == "`/":#if command word
                         msg = msg.split("#")# msg = ["command","type", "Name"]
-                        if msg[1] == "login":#if command is login
+                        if msg[1] == 'get':
+                            print("Sending Pubkey")
+                            Send(cs, PubKey)
+                        elif msg[1] == "login":#if command is login
                             if msg[2] in Users.keys():
                                 LoggingClients[msg[2]]=str(random.randint(0,999999))
                                 f=open("Users","r")
                                 fr=ast.literal_eval(f.read())
                                 f.close()
 
-                                Send(cs,Users[msg[2]],LoggingClients[msg[2]])#send random numbers
+                                Send(cs,LoggingClients[msg[2]],fr[msg[2]])#send random numbers
 
                             else:
                                 Send(cs,PubKey,"WRONG".encode())#todo only allow 5 tries before blacklist

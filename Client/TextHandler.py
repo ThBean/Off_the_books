@@ -57,18 +57,15 @@ def decryptText(file):#Ensure key is in bytes
 def PasswordDecrypt(file,password):
 
     f = open(file, "rb")
-    data = f.read()
-    f.close()
-    os.remove(file)
 
-    f = open("key", "rb")
-    Key = f.read()
-    f.close()
+    fk = open("key", "rb")
+    Key = fk.read()
+    fk.close()
 
-    key = RSA.import_key(open("key", "rb").read(), passphrase=password)
+    key = RSA.import_key(Key, passphrase=password)
 
     enc_session_key, nonce, tag, ciphertext = \
-        [data for x in (key.size_in_bytes(), 16, 16, -1)]
+        [f.read(x) for x in (key.size_in_bytes(), 16, 16, -1)]
 
     # Decrypt the session key with the private RSA key
     cipher_rsa = PKCS1_OAEP.new(key)
@@ -77,6 +74,10 @@ def PasswordDecrypt(file,password):
     # Decrypt the data with the AES session key
     cipher_aes = AES.new(session_key, AES.MODE_EAX, nonce)
     data = cipher_aes.decrypt_and_verify(ciphertext, tag)
+
+    f.close()
+    os.remove(file)
+
     return data.decode()
 
 def PasswordEncrypt(password,Name,key,data):

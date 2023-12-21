@@ -1,3 +1,5 @@
+import os
+
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.PublicKey import RSA
 from Crypto.Random import get_random_bytes
@@ -23,7 +25,7 @@ def encryptText(Key,data):#Key is a byte map btw
 
     # Encrypt the data with the AES session key
     cipher_aes = AES.new(session_key, AES.MODE_EAX)
-    ciphertext, tag = cipher_aes.encrypt_and_digest(data)
+    ciphertext, tag = cipher_aes.encrypt_and_digest(data.encode())
 
     file_out = open("Message","wb")
     [ file_out.write(x) for x in (enc_session_key, cipher_aes.nonce, tag, ciphertext) ]
@@ -54,17 +56,15 @@ def decryptText(file):#Ensure key is in bytes
 def PasswordDecrypt(file,password):
 
     f = open(file, "rb")
-    data = f.read()
-    f.close()
 
-    f = open("key", "rb")
-    Key = f.read()
-    f.close()
+    fk = open("key", "rb")
+    Key = fk.read()
+    fk.close()
 
-    key = RSA.import_key(open("key", "rb").read(), passphrase=password)
+    key = RSA.import_key(Key, passphrase=password)
 
     enc_session_key, nonce, tag, ciphertext = \
-        [data for x in (key.size_in_bytes(), 16, 16, -1)]
+        [f.read(x) for x in (key.size_in_bytes(), 16, 16, -1)]
 
     # Decrypt the session key with the private RSA key
     cipher_rsa = PKCS1_OAEP.new(key)
@@ -73,6 +73,10 @@ def PasswordDecrypt(file,password):
     # Decrypt the data with the AES session key
     cipher_aes = AES.new(session_key, AES.MODE_EAX, nonce)
     data = cipher_aes.decrypt_and_verify(ciphertext, tag)
+
+    f.close()
+    os.remove(file)
+
     return data.decode()
 
 def PasswordEncrypt(password,Name,key,data):

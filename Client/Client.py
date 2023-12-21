@@ -1,10 +1,12 @@
 import os
-import socket
 import random
-from threading import Thread
+import socket
 from datetime import datetime
-from colorama import Fore, init
+from threading import Thread
 from time import sleep
+
+from colorama import Fore, init
+
 from TextHandler import *
 
 # init colors
@@ -37,22 +39,47 @@ s.connect((SERVER_HOST, SERVER_PORT))
 print("[+] Connected.")
 password=""
 
-def Send(cs,data,ServerPubKey):
-    encryptText(ServerPubKey, data)
+def receive_file(sck: socket.socket,password):
+    print("Receiving...")
+    l = sck.recv(1024).decode()
+    if l == '`/#get':
+            return l
+    else:
+        f = open('fileIn', 'wb')
 
-    filename = "Message"
-    with cs, open(filename, 'rb') as f:
-        cs.sendall(filename.encode() + b'\n')
-        cs.sendall(f'{os.path.getsize(filename)}'.encode() + b'\n')
+        recursions = int(l) / CHUNKSIZE
+        if recursions < 1: recursions = 1
+        print(recursions)
 
-        # Send the file in chunks so large files can be handled.
-        while True:
-            data = f.read(CHUNKSIZE)
-            if not data: break
-            cs.sendall(data)
-            print(data)
-    os.remove("Message")
+        for x in range(0,recursions):
+            print("Receiving...")
+            l = sck.recv(1024)
+            print(l)
+            f.write(l)
+        f.close()
+        print("Done Receiving")
+        return PasswordDecrypt('fileIn',password)
 
+def Send(cs,data,PubKey):
+    encryptText(PubKey, data)
+
+    f = open('Message', 'rb')
+    size = os.path.getsize('Message')
+    cs.send(str(size).encode())
+    print(size)
+
+    recursions = size / CHUNKSIZE
+    if recursions < 1: recursions=1
+
+    l=b''
+    for x in range(0,recursions):#loop through the number of time to send the data
+        print(l)
+        print('Sending...')
+        l = f.read(CHUNKSIZE)
+        cs.send(l)
+
+    os.remove('Message')
+    print('Done Sending')
 
 def listen_for_messages():#Used to assign a thread
     while True:
@@ -82,35 +109,6 @@ def listen_for_messages():#Used to assign a thread
         except OSError as e:
             pass
 
-def listen_for_message(enc):#Used to get only one message
-    while True:
-        try:
-            with s, s.makefile('rb') as clientfile:
-                filename = clientfile.readline().strip()
-                path = os.path.join(filename)
-
-                # Read the data in chunks so it can handle large files.
-                f = open("fileIn", "wb")
-                data = clientfile.read(CHUNKSIZE)
-                if not data: break  # socket closed
-                f.write(data)
-                f.close()
-
-                print('Done.')
-
-                if enc:
-                    out = PasswordDecrypt('fileIn',password)
-                else:
-                    f = open('fileIn', "r")
-                    out = f.read()
-                    f.close()
-                    os.remove('fileIn')
-
-                return out
-
-        except OSError:
-            print("not valid file")
-
 def SignUp():
     Name = input("Enter what you want to be called by: ")
     if Name.isalpha():
@@ -125,7 +123,7 @@ def SignUp():
             to_send = "`/#signup#" + Name + "#" + PubKey
             print(PubKey)
             s.send(to_send.encode())  #send request
-            response = listen_for_message(False).decode()
+            response = receive_file(s,password)
             if response == "USERNAME IN USE":
                 print("Username already being used")
                 SignUp()
@@ -141,7 +139,7 @@ Attempt = True
 tries = 0
 
 print("GETTING SERVER KEY...")
-to_send = "`/get"
+to_send = "`/#get"
 s.send(to_send.encode())  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
 ServerPub = s.recv(1024)
 print(ServerPub)
@@ -160,15 +158,13 @@ while Attempt:#Start login attempts for 5 tries
     to_send = "`/#login#"+name
 
     Send(s,to_send,ServerPub)  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
-    response = listen_for_message(True)
+    response = receive_file(s,password)
     print(response)
-
-    response = PasswordDecrypt(response,password)#decrypt with our key
 
     to_send = "`/#login2#"+name+"#"+response#send back session id to prove who we be
     s.send(to_send.encode())
 
-    response = listen_for_message(True).decode()
+    response = receive_file(s,password)
     if response == "WRONG":
         print("Incorrect Information! Have you made a account?")
         tries += 1
