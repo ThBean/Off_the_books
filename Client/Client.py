@@ -1,79 +1,73 @@
-import os
-import random
-import socket
-from datetime import datetime
-from threading import Thread
-from time import sleep
+UIenabled = True  # in case you're a terminal enjoyed just change to 'False'
 
-from colorama import Fore, init
+import socket
+from threading import Thread, Event
+
+if UIenabled:
+    from tkinter import messagebox
 
 from TextHandler import *
 
-# init colors
-init()
-
 CHUNKSIZE = 1_000_000
+#VARIABLES
+ServerMessages = []
+UnreadMessages = []
 
-# set the available colors
-colors = [Fore.BLUE, Fore.CYAN, Fore.GREEN, Fore.LIGHTBLACK_EX, 
-    Fore.LIGHTBLUE_EX, Fore.LIGHTCYAN_EX, Fore.LIGHTGREEN_EX, 
-    Fore.LIGHTMAGENTA_EX, Fore.LIGHTRED_EX, Fore.LIGHTWHITE_EX, 
-    Fore.LIGHTYELLOW_EX, Fore.MAGENTA, Fore.RED, Fore.WHITE, Fore.YELLOW
-]
-
-# choose a random color for the client
-client_color = random.choice(colors)
+SvrMessage = Event()
 
 # server's IP address
 SERVER_HOST = ""
-SERVER_PORT = 5002 # server's port
-separator_token = "<SEP>" # we will use this to separate the client name & message
+SERVER_PORT = 5002  # server's port
+separator_token = "<SEP>"  # we will use this to separate the client name & message
 PubKey = ""
-ServerPub = ""
 
 # initialize TCP socket
 s = socket.socket()
 print(f"[*] Connecting to {SERVER_HOST}:{SERVER_PORT}...")
 # connect to the server
-s.connect((SERVER_HOST, SERVER_PORT))
+try:
+    s.connect((SERVER_HOST, SERVER_PORT))
+except ConnectionRefusedError:
+    print('The Server seems down right now?\nCheck that:\n1) ' + SERVER_HOST + 'Is the correct Host Address\n'
+                                                                               '2) The Server is running')
+    exit(404)
 print("[+] Connected.")
-password=""
+password = ""
 
-def receive_file(sck: socket.socket,password):
+global SessionID
+
+
+def receive_file(sck: socket.socket, Passphrase):
     print("Receiving...")
     l = sck.recv(1024).decode()
-    if l == '`/#get':
-            return l
+    if l == '`/#get' or l == 'WRONG':
+        return l
     else:
         f = open('fileIn', 'wb')
 
         recursions = int(l) / CHUNKSIZE
         if recursions < 1: recursions = 1
-        print(recursions)
 
-        for x in range(0,recursions):
+        for x in range(0, recursions):
             print("Receiving...")
             l = sck.recv(1024)
-            print(l)
             f.write(l)
         f.close()
         print("Done Receiving")
-        return PasswordDecrypt('fileIn',password)
+        return PasswordDecrypt('fileIn', Passphrase)
 
-def Send(cs,data,PubKey):
-    encryptText(PubKey, data)
+
+def Send(cs, data, Key):
+    encryptText(Key, data)
 
     f = open('Message', 'rb')
     size = os.path.getsize('Message')
     cs.send(str(size).encode())
-    print(size)
 
     recursions = size / CHUNKSIZE
-    if recursions < 1: recursions=1
+    if recursions < 1: recursions = 1
 
-    l=b''
-    for x in range(0,recursions):#loop through the number of time to send the data
-        print(l)
+    for x in range(0, recursions):  # loop through the number of time to send the data
         print('Sending...')
         l = f.read(CHUNKSIZE)
         cs.send(l)
@@ -81,122 +75,200 @@ def Send(cs,data,PubKey):
     os.remove('Message')
     print('Done Sending')
 
-def listen_for_messages():#Used to assign a thread
-    while True:
-        try:
-            with s, s.makefile('rb') as clientfile:
-                filename = clientfile.readline().strip()
-                length = int(clientfile.readline())
-                print(f'Downloading {filename}:{length}...')
-                path = os.path.join(filename)
 
-                # Read the data in chunks so it can handle large files.
-                f = open("fileIn", "wb")
-                while length:
-                    chunk = min(length, CHUNKSIZE)
-                    data = clientfile.read(chunk)
-                    if not data: break  # socket closed
-                    f.write(data)
-                    length -= len(data)
-                f.close()
+def listen_for_messages(sck, Passphrase) -> str:  # Used to assign a thread
+    print("Receiving...")
+    l = sck.recv(1024).decode()
+    if l == '`/#get' or l == 'WRONG':
+        return l
+    else:
+        f = open('fileIn', 'wb')
 
-                if length != 0:
-                    print('Invalid download.')
-                else:
-                    print('Done.')
+        recursions = int(l) / CHUNKSIZE
+        if recursions < 1: recursions = 1
 
-                return PasswordDecrypt("fileIn",password)
-        except OSError as e:
-            pass
+        for x in range(0, recursions):
+            print("Receiving...")
+            l = sck.recv(1024)
+            f.write(l)
+        f.close()
+        print("Done Receiving")
+        msg =  PasswordDecrypt('fileIn', Passphrase)
+        msgS = msg.split('#')
+        if msgS[1] == 'message':
+            if UIenabled:
+                messagebox.showinfo("New Message!", "New message from:\n"+msgS[2])
+            else:
+                print('New Message From: '+msgS[2])
+            yield [msgS[2], msgS[3]]  # print Name
+
+        elif msgS[1] == 'key':  # a friendly user key!
+            ServerMessages.append(msgS[2]) # append the key
+            SvrMessage.set()
+
+
+
+def Log_In(UserName, passphrase, Key):
+    print("GETTING SESSION ID...")
+
+    Send(s, "`/#login#" + UserName,
+         Key)  # send info with a `/ to tell the machine it's a command done in plain text since I don't have the PubKey
+
+    SessionID = receive_file(s, passphrase)
+    if SessionID == 'WRONG': return False
+    # send back session id to prove who we be
+    Send(s, "`/#login2#" + UserName + "#" + SessionID, Key)
+
+    response = receive_file(s, passphrase)
+    if response == "WRONG":
+        print("Incorrect Information! Have you made a account?")
+        return False
+    elif response == "SUCCESS":
+        print(response)
+        return SessionID
+
 
 def SignUp():
     Name = input("Enter what you want to be called by: ")
-    if Name.isalpha():
+
+    if Name.isalpha() and not '#' in Name:  # no Hashtags please! # Psst pen-testers it won't actually do anything!
         Password = input("enter your password (the Longer the better;) : ")
         RePassword = input("renter your password: ")
         if Password == RePassword:
             print("Signing Up!")
 
             PasswordMakeKey(Password)
-            PubKey = GetPubKey(Password)
+            PublicKey = GetPubKey(Password)
 
-            to_send = "`/#signup#" + Name + "#" + PubKey
-            print(PubKey)
-            s.send(to_send.encode())  #send request
-            response = receive_file(s,password)
+            Send(s, "`/#signup#" + Name + "#" + PublicKey, ServerPub)  # Send Request
+
+            response = receive_file(s, Password)
             if response == "USERNAME IN USE":
                 print("Username already being used")
-                SignUp()
-
+                return SignUp()
+            else:
+                return Name, Password
         else:
             print("Passwords dont match!")
-            SignUp()
+            return SignUp()
     else:
         print("you can only have letters! try again.")
-        SignUp()
+        return SignUp()
 
-Attempt = True
+
 tries = 0
 
 print("GETTING SERVER KEY...")
 to_send = "`/#get"
-s.send(to_send.encode())  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
-ServerPub = s.recv(1024)
-print(ServerPub)
 
-while Attempt:#Start login attempts for 5 tries
+try:  # see if server is up or not
+    s.send(to_send.encode())  # send info with a `/ to tell the machine it's a command done in plain text since I don't
+    # have the PubKey RFI (could store it)
+except BrokenPipeError:
+    print('The Server seems down right now?\nCheck that:\n1) ' + SERVER_HOST + 'Is the correct Host Address\n'
+                                                                               '2) The Server is running')
+    exit(404)
+
+ServerPub = s.recv(1024)
+
+while True:  # Start login attempts for 5 tries
     print("enter 'sign up' to create account")
-    name = input("Enter your name: ")#Ask for info
+    name = input("Enter your name: ")  # Ask for info
+
     if name.lower() == "sign up":
-        keys = SignUp()
-        Attempt = False
+        name, password = SignUp()
+        Log_In(name, password, ServerPub)
+        break
 
     password = input("Enter your password: ")
-    PubKey = GetPubKey(password)
 
-    print("GETTING SESSION ID...")
-    to_send = "`/#login#"+name
+    if CheckPassword(password):
+        SessionID = Log_In(name, password, ServerPub)
+        if SessionID:
+            break
+        else:
+            print('Incorrect Username')
+    else:
+        print('Incorrect Password')
 
-    Send(s,to_send,ServerPub)  # send info with a `/ to tell the machine its a command done in plain text since i dont have the PubKey
-    response = receive_file(s,password)
-    print(response)
-
-    to_send = "`/#login2#"+name+"#"+response#send back session id to prove who we be
-    s.send(to_send.encode())
-
-    response = receive_file(s,password)
-    if response == "WRONG":
-        print("Incorrect Information! Have you made a account?")
+    if tries == 4:  # lockout function
+        exit(401)
+    else:
         tries += 1
-        if Attempt == 5:
-            print("TIMEOUT")
-            exit()
-    elif response == "SUCCESS":
-        Attempt = False
-        print(response)
-
 
 # make a thread that listens for messages to this client & print them
-t = Thread(target=listen_for_messages)#Give the thread
-# make the thread daemon so it ends whenever the main thread ends
+t = Thread(target=listen_for_messages, args=(s, password))  # Give the thread
+# make the thread daemon, so it ends whenever the main thread ends
 t.daemon = True
 # start the thread
-t.start()
+UnreadMessages.append(t.start())
 
-while True:
-    sleep(1)
-    # input message we want to send to the server
-    to_send =  input("Message: ")
-    # a way to exit the program
-    if to_send.lower() == 'x':
-        break
-    # add the datetime, name & the color of the sender
-    date_now = datetime.now().strftime('%Y-%m-%d %H:%M:%S') 
-    to_send = f"{client_color} {to_send}{Fore.RESET}"
-    #Encrypt the message
-    to_send = encryptText(PubKey,to_send)
-    # finally, send the message
+
+def SendMessage(s, Msg, ServerPub, name, SessionID, UsrKey):  # todo optimize
+    # make a message to the server saying who it is we are sending a message too
+    encryptText(UsrKey, Msg)  # encrypt data to User
+
+    f = open('Message', 'rb')
+    Emsg = f.read()
+    f.close()
+    Usize = os.path.getsize('Message')  # get size of the message
+    # this how i tell the Server what this all means
+
+    encryptText(ServerPub, name+' '+SessionID)  # encrypt the info for the server
+
+    Ssize = os.path.getsize('Message')
+
+    to_send = '`/msg#'+str(Ssize)+'#'+str(Usize)
     s.send(to_send.encode())
 
-# close the socket
-s.close()
+    f = open('Message', 'ab')  # append bytes mode
+    f.write(Emsg)  # write the message data
+    f.close()
+
+    recursions = Ssize+Usize / CHUNKSIZE
+    if recursions < 1: recursions = 1
+
+    for x in range(0, recursions):  # loop through the number of time to send the data
+        print('Sending...')
+        l = f.read(CHUNKSIZE)
+        s.send(l)
+
+    os.remove('Message')
+    print('Done Sending')
+
+
+while True:
+    try:  # try block
+        os.system('clear')  # clear screen
+        # Main Menu
+        print('''
+        1. Start a chat
+        2. Open a chat
+        3. Start a group
+        4. Change password
+        5. Delete account
+        ''')
+        choice = input()
+
+        if choice == '1':
+            name = input('Enter the users name:\n')
+
+            Send(s, '`/#start#' + name + '#' + SessionID, ServerPub)  # Only if we dont already have it # todo make userdata
+            SvrMessage.wait(timeout=10)
+
+            run = True
+            while run:  # wait for target pubkey
+                Msg = input('Enter message ("#" to exit): \n')
+
+                UsrKey = ServerMessages[0]
+                ServerMessages.pop(0)
+
+                SendMessage(s, Msg, ServerPub, name, SessionID, UsrKey)
+
+                
+
+
+
+    except:
+        print('ERROR:\n    Press enter to return...')
+        input()
