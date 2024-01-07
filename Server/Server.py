@@ -58,7 +58,6 @@ def receive_file(sck: socket.socket):
         l = l.split('#')
 
         Ssize = int(l[1])
-        Usize = int(l[2])
 
         fff = open('fileIn', 'wb')
 
@@ -78,6 +77,20 @@ def receive_file(sck: socket.socket):
         ffff.write(fff.read(Ssize))  # read the bytes for the server and decrypt
         ffff.close()
         info = decryptText('ServerMsg').split(' ')  # this will tell us who to send it to as well as the token
+
+        ffff = open('fileIn', 'wb')
+
+        recursions = int(l[Ssize]) / CHUNKSIZE
+        if recursions < 1: recursions = 1
+
+        for x in range(0, recursions):
+            print("Receiving...")
+            l = sck.recv(1024)
+            ffff.write(l)
+        ffff.close()
+        print("Done Receiving")
+
+        #now file in is the one where forwarding
 
 
     else:
@@ -160,7 +173,8 @@ def listen_for_client(Socket):
                     if msg[3] in OnlineClients.keys():  # check session ID
                         fr = get_Users()
                         if msg[2] in fr.keys():  # check the user exists
-                            Send(Socket, fr[msg[2]], Users[msg[3]])  # send targets pubkey
+                            print(Users)
+                            Send(Socket, fr[msg[2]], Users[msg[2]])  # send targets pubkey
                         else:
                             Send(Socket, '404', Users[msg[3]])  # Tell them it doesn't exist
                     else:
